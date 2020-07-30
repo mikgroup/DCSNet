@@ -495,8 +495,10 @@ def main(args):
             else:
                 netD = networks.define_D(3,64,'basic').to(args.device)
         if args.data_parallel:
+            print("Using Multiple GPUs")
             netG = torch.nn.DataParallel(netG) 
-            netD = torch.nn.DataParallel(netD) 
+            if args.adv:
+                netD = torch.nn.DataParallel(netD) 
             
         optimizer_G = torch.optim.Adam(netG.parameters(), lr=args.lr, weight_decay=args.weight_decay)
         if args.adv:
@@ -605,7 +607,7 @@ def create_arg_parser():
     parser.add_argument('--vgg-perceptual',action='store_true',default=False, help='If set, will use perceptual loss')
     parser.add_argument('--vgg-weight', type=float, default=0.05, help='weight for vgg'), # 0.1 
     parser.add_argument('--gan-weight', type=float, default=0.05, help='weight for gan'), # 0.1 
-    
+    parser.add_argument('--num-workers', type=int, default=8, help='number of Dataloader workers'), # 0.1 
     parser.add_argument('--adv',action='store_true',default=False, help='If set, will use adversarial loss')
     
     parser.add_argument('--conditional',action='store_true',default=False, help='If set, will use conditional gan')
