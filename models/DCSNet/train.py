@@ -107,12 +107,12 @@ def create_data_loaders(args):
         dataset=train_data,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=16,
+        num_workers=args.num_workers,
         pin_memory=True,
     )
     dev_loader = DataLoader(
         dataset=dev_data,
-        batch_size=args.batch_size,
+        batch_size=args.num_workers,
         num_workers=16,
         pin_memory=True,
     )
@@ -443,14 +443,34 @@ def build_split_model(args):
 def load_model(checkpoint_file):
     checkpoint = torch.load(checkpoint_file)
     args = checkpoint['args']
-    model = build_model(args)
+    if "num_workers" not in args:
+        args.num_workers = 16
+    netG = build_generator(args)
+    netD = None
+    if args.adv:
+        print("Using adversarial loss")
+        if args.conditional:
+            netD = networks.define_D(4,64,'basic').to(args.device)
+        else:
+            netD = networks.define_D(3,64,'basic').to(args.device)
     if args.data_parallel:
-        model = torch.nn.DataParallel(model)
-    model.load_state_dict(checkpoint['model'])
-
-    optimizer = build_optim(args, model.parameters())
-    optimizer.load_state_dict(checkpoint['optimizer'])
-    return checkpoint, model, optimizer
+        netG = torch.nn.DataParallel(netG) 
+        if args.adv:
+            netD = torch.nn.DataParallel(netD) 
+    netG.load_state_dict(checkpoint['netG'])
+    if args.adv:
+        netD.load_state_dict(checkpoint['netD'])
+    
+    optimizer_G = torch.optim.Adam(netG.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    if args.adv:
+        optimizer_D = torch.optim.Adam(netD.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    else:
+        optimizer_D = None
+    
+    optimizer_G.load_state_dict(checkpoint['optimizer_G'])
+    if args.adv:
+        optimizer_D.load_state_dict(checkpoint['optimizer_D'])
+    return checkpoint, netG,netD, optimizer_G,optimizer_D
 
 
 def build_optim(args, netG,netD):
@@ -480,7 +500,7 @@ def main(args):
         args.device = 'cpu'
 
     if args.resume:
-        checkpoint, model, optimizer = load_model(args.checkpoint)
+        checkpoint, netG,netD, optimizer_G,optimizer_D = load_model(args.checkpoint)
         args = checkpoint['args']
         best_dev_loss = checkpoint['best_dev_loss']
         start_epoch = checkpoint['epoch']
@@ -496,7 +516,8 @@ def main(args):
                 netD = networks.define_D(3,64,'basic').to(args.device)
         if args.data_parallel:
             netG = torch.nn.DataParallel(netG) 
-            netD = torch.nn.DataParallel(netD) 
+            if args.adv:
+                netD = torch.nn.DataParallel(netD) 
             
         optimizer_G = torch.optim.Adam(netG.parameters(), lr=args.lr, weight_decay=args.weight_decay)
         if args.adv:
@@ -578,7 +599,7 @@ def create_arg_parser():
                         help='Multiplicative factor of learning rate decay')
     parser.add_argument('--weight-decay', type=float, default=0.,
                         help='Strength of weight decay regularization')
-
+    parser.add_argument('--num-workers', type=int, default=16, help='number of workers')
     # Miscellaneous parameters
     parser.add_argument('--seed', default=42, type=int, help='Seed for random number generators')
     parser.add_argument('--report-interval', type=int, default=3, help='Period of loss reporting')
